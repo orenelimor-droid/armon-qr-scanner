@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>סורק QR – ARMON 9212</title>
+<style>
+  *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#101820;color:white;font-family:Arial,sans-serif}
+  main{max-width:580px;margin:auto;padding:20px 15px;text-align:center}
+  h1{font-size:27px}p{font-size:19px;line-height:1.5}
+  video{width:100%;max-height:68vh;object-fit:cover;background:#000;border:3px solid #36b678;border-radius:14px}
+  #status{font-weight:700;color:#b4f3c7}
+  #manual{width:80%;max-width:300px;font-size:27px;text-align:center;padding:12px;border:0;border-radius:8px;direction:ltr}
+  button{padding:14px 19px;font-size:22px;border:0;border-radius:9px;background:#2e7d32;color:white;cursor:pointer}
+  .fallback{margin:24px 0;padding:16px;background:#1d2b37;border-radius:12px}
+  .hint{color:#bdc9d1;font-size:15px}
+</style>
+<!-- Uses the native BarcodeDetector API only; no external JavaScript or camera data transfer. -->
+</head>
+<body>
+<main>
+  <h1>סריקת QR – איתור בנשקייה</h1>
+  <p>כוון את המצלמה לתגית. מיד עם הזיהוי הסורק יחזיר רק את קוד האיתור לטופס.</p>
+  <video id="video" autoplay muted playsinline></video>
+  <p id="status" role="status">פותח מצלמה...</p>
+  <div class="fallback">
+    <p>המצלמה לא זמינה? אפשר להקליד איתור:</p>
+    <input id="manual" maxlength="4" placeholder="A111" autocomplete="off" aria-label="איתור ידני"><br><br>
+    <button id="manualBtn" type="button">העבר איתור לטופס</button>
+  </div>
+  <p class="hint">אין צילום, אין שמירת תמונה ואין העלאת נתונים. נדרשת הרשאת מצלמה בדפדפן.</p>
+</main>
+<script>
+'use strict';
+const video=document.getElementById('video');
+const statusNode=document.getElementById('status');
+const params=new URLSearchParams(location.hash.replace(/^#/,''));
+const nonce=params.get('nonce')||'';
+const openerOrigin=params.get('origin')||'';
+let stream=null,done=false,checking=false,timer=null;
+function status(msg){statusNode.textContent=msg;}
+function validLocation(code){return /^[A-Z][0-9](0[1-9]|1[0-9]|20)$/.test(String(code||'').trim().toUpperCase());}
+function cleanup(){if(timer){clearInterval(timer);timer=null;}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}}
+function sendCode(raw){
+  const code=String(raw||'').trim().toUpperCase();
+  if(done)return;
+  if(!validLocation(code)){status('הקוד שזוהה אינו איתור תקין: '+code);return;}
+  if(!window.opener || !nonce || !/^https:\/\//.test(openerOrigin)){
+    status('אין חיבור לטופס הקודם. רשום ידנית: '+code);cleanup();return;
+  }
+  done=true;cleanup();
+  window.opener.postMessage({type:'ARMON_QR_SCAN',nonce,code},openerOrigin);
+  status('איתור '+code+' נקלט. חוזר לטופס...');
+  // Script-opened window/tab can usually close itself on Android Chrome.
+  setTimeout(()=>{try{window.opener.focus();}catch(_){ }window.close();
+    status('הסריקה הושלמה. חזור לכרטיסיית הרישום אם היא לא נפתחה אוטומטית.');},250);
+}
+async function start(){
+  if(!nonce||!openerOrigin){status('יש לפתוח את הסורק דרך כפתור סרוק QR במערכת.');return;}
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){status('דפדפן זה אינו מאפשר הפעלת מצלמה.');return;}
+  try {
+    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
+    video.srcObject=stream;await video.play();
+  }catch(err){status('לא ניתן לפתוח מצלמה. בדוק הרשאות בדפדפן: '+(err&&err.message||err));return;}
+  let detector=null;
+  if('BarcodeDetector' in window){
+    try{detector=new BarcodeDetector({formats:['qr_code']});}catch(_){detector=null;}
+  }
+  if(detector){
+    status('המצלמה פעילה. כוון את ה־QR למסגרת.');
+    timer=setInterval(async()=>{
+      if(checking||done||video.readyState<2)return;checking=true;
+      try{const codes=await detector.detect(video);if(codes.length)sendCode(codes[0].rawValue);}catch(err){console.warn(err);}finally{checking=false;}
+    },180);
+    return;
+  }
+  status('הדפדפן אינו תומך בסריקת QR חיה. יש להשתמש ב-Chrome עדכני באנדרואיד או בהזנה הידנית.');
+
+}
+document.getElementById('manual').addEventListener('input',e=>{e.target.value=e.target.value.toUpperCase().replace(/\s/g,'');});
+document.getElementById('manualBtn').addEventListener('click',()=>sendCode(document.getElementById('manual').value));
+document.getElementById('manual').addEventListener('keydown',e=>{if(e.key==='Enter')sendCode(e.target.value);});
+window.addEventListener('pagehide',cleanup);
+start();
+</script>
+</body>
+</html>
